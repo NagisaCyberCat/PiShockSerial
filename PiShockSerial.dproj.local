@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>1899.12.30 00:00:00.000.232,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.109,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.105,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.520,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.039,C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\PiShockSerial\piserial.pas=C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.767,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.204,C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\PiShockSerial\PiShockSerial.dproj=C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\Project1.dproj</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.039,C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\PiShockSerial\piserial.dfm=C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.dfm</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.882,=C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.816,=C:\Users\Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.010,=C:\Users\André Latzko\Documents\Embarcadero\Studio\Projekte\Unit1.pas</Transaction>
+  </Transactions>
+</BorlandProject>
