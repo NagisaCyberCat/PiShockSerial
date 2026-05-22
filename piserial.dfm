@@ -244,6 +244,16 @@ object Form1: TForm1
           TabOrder = 2
           OnClick = btnDelMapClick
         end
+        object btnTestMap: TButton
+          Left = 4
+          Top = 112
+          Width = 47
+          Height = 28
+          Caption = 'Test'
+          Enabled = False
+          TabOrder = 3
+          OnClick = btnTestMapClick
+        end
       end
     end
     object btnEmergencyStop: TButton
@@ -277,6 +287,10 @@ object Form1: TForm1
       object mnuConfig: TMenuItem
         Caption = 'Configuration...'
         OnClick = mnuConfigClick
+      end
+      object mnuModuleNames: TMenuItem
+        Caption = 'Module names...'
+        OnClick = mnuModuleNamesClick
       end
     end
   end

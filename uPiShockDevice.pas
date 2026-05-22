@@ -8,6 +8,7 @@ unit uPiShockDevice;
     VID  0x1A86
     PID  0x7523 -> Next-Hardware (Typ 3 in TERMINALINFO)
     PID  0x55D4 -> Lite-Hardware (Typ 4 in TERMINALINFO)
+    Weitere PIDs sind moeglich und werden als Generation=Unbekannt erkannt.
 
   Kommunikation: 115200 Baud, 8N1, JSON-Kommandos, zeilenweise ('\n')
   Antwort: "TERMINALINFO:[JSON]" nach "info"-Kommando
@@ -19,7 +20,9 @@ uses
   Winapi.Windows,
   System.SysUtils, System.Classes, System.JSON,
   System.Generics.Collections, System.SyncObjs,
+  System.Win.Registry,
   StrUtils,
+  Vcl.ExtCtrls,
   CPDrv, SerialPorts;
 
 type
@@ -55,8 +58,16 @@ type
 procedure GetAllComPorts(Dest: TStrings);
 
 /// <summary>
-///   Registry nach PiShock-Geraeten (VID 0x1A86 + bekannte PIDs) durchsuchen.
-///   Gibt Eintraege fuer jeden gefundenen Port zurueck.
+///   Aktiver Probe eines COM-Ports ueber Serial-API (`{"cmd":"info"}`).
+///   Liefert True, sobald eine TERMINALINFO/TEREMINALINFO-Antwort empfangen wird.
+/// </summary>
+function ProbePiShockPort(const APortName: string;
+  ATimeoutMs: Cardinal = 2200): Boolean;
+
+/// <summary>
+///   Registry nach PiShock-Geraeten (VID 0x1A86) durchsuchen.
+///   Bekannte PIDs werden als Next/Lite klassifiziert; unbekannte PIDs
+///   werden trotzdem als PiShock-Port mit Generation=Unbekannt zurueckgegeben.
 /// </summary>
 function FindPiShockPorts: TArray<TPiShockPortInfo>;
 
@@ -71,11 +82,15 @@ type
     FComDrv      : TCommPortDriver;
     FDeviceInfo  : TDeviceInfo;
     FBuffer      : string;          // Empfangspuffer (Hauptthread)
+    FInfoRetryTimer : TTimer;
+    FInfoRetryCount : Integer;
     FOnDeviceInfo: TOnDeviceInfoEvent;
     FOnLog       : TOnSerialLogEvent;
     FIsConnected : Boolean;
 
     procedure OnReceiveData(Sender: TObject; DataPtr: Pointer; DataSize: DWORD);
+    procedure OnInfoRetryTimer(Sender: TObject);
+    procedure StopInfoRetry;
     procedure ProcessBuffer;
     procedure ParseTerminalInfo(const JSON: string);
     procedure DoLog(const Msg: string);
@@ -127,14 +142,120 @@ procedure GetAllComPorts(Dest: TStrings);
 var
   Ports : TSerialPortList;
   Port  : TSerialPort;
+  Reg   : TRegistry;
+  Names : TStringList;
+  I     : Integer;
+  V     : string;
 begin
   Dest.Clear;
   Ports := GetComPorts;
   try
     for Port in Ports do
-      Dest.Add(Port.PortName);
+      if (Port.PortName <> '') and (Dest.IndexOf(Port.PortName) < 0) then
+        Dest.Add(Port.PortName);
   finally
     Ports.Free;
+  end;
+
+  // Fallback: direkte Registry-Liste, falls SerialPorts nichts/zu wenig liefert.
+  Reg := TRegistry.Create(KEY_READ);
+  Names := TStringList.Create;
+  try
+    Reg.RootKey := HKEY_LOCAL_MACHINE;
+    if Reg.OpenKeyReadOnly('HARDWARE\DEVICEMAP\SERIALCOMM') then
+    begin
+      Reg.GetValueNames(Names);
+      for I := 0 to Names.Count - 1 do
+      begin
+        V := Trim(Reg.ReadString(Names[I]));
+        if (V <> '') and (Dest.IndexOf(V) < 0) then
+          Dest.Add(V);
+      end;
+      Reg.CloseKey;
+    end;
+  finally
+    Names.Free;
+    Reg.Free;
+  end;
+end;
+
+function ProbePiShockPort(const APortName: string;
+  ATimeoutMs: Cardinal): Boolean;
+var
+  H        : THandle;
+  Dcb      : TDCB;
+  Timeouts : TCommTimeouts;
+  Path     : string;
+  Cmd      : AnsiString;
+  Written  : DWORD;
+  ReadCnt  : DWORD;
+  B        : Byte;
+  S        : AnsiString;
+  Deadline : UInt64;
+begin
+  Result := False;
+  if Trim(APortName) = '' then
+    Exit;
+
+  if StartsStr('\\.\', APortName) then
+    Path := APortName
+  else
+    Path := '\\.\' + APortName;
+
+  H := CreateFile(PChar(Path), GENERIC_READ or GENERIC_WRITE, 0, nil,
+    OPEN_EXISTING, 0, 0);
+  if H = INVALID_HANDLE_VALUE then
+    Exit;
+
+  try
+    FillChar(Dcb, SizeOf(Dcb), 0);
+    Dcb.DCBlength := SizeOf(Dcb);
+    if not GetCommState(H, Dcb) then
+      Exit;
+
+    Dcb.BaudRate := CBR_115200;
+    Dcb.ByteSize := 8;
+    Dcb.Parity   := NOPARITY;
+    Dcb.StopBits := ONESTOPBIT;
+    Dcb.Flags    := Dcb.Flags or 1; // fBinary=True
+    if not SetCommState(H, Dcb) then
+      Exit;
+
+    FillChar(Timeouts, SizeOf(Timeouts), 0);
+    Timeouts.ReadIntervalTimeout         := 20;
+    Timeouts.ReadTotalTimeoutMultiplier  := 0;
+    Timeouts.ReadTotalTimeoutConstant    := 40;
+    Timeouts.WriteTotalTimeoutMultiplier := 0;
+    Timeouts.WriteTotalTimeoutConstant   := 500;
+    if not SetCommTimeouts(H, Timeouts) then
+      Exit;
+
+    PurgeComm(H, PURGE_RXCLEAR or PURGE_TXCLEAR);
+
+    Cmd := AnsiString('{"cmd":"info"}' + #10);
+    if (not WriteFile(H, Cmd[1], Length(Cmd), Written, nil)) or
+       (Written <> DWORD(Length(Cmd))) then
+      Exit;
+
+    S := '';
+    Deadline := GetTickCount64 + ATimeoutMs;
+    while GetTickCount64 < Deadline do
+    begin
+      if ReadFile(H, B, 1, ReadCnt, nil) and (ReadCnt = 1) then
+      begin
+        S := S + AnsiChar(B);
+        if Pos('TERMINALINFO:', string(S)) > 0 then
+          Exit(True);
+        if Pos('TEREMINALINFO:', string(S)) > 0 then
+          Exit(True);
+
+        // Speicher begrenzen: nur letztes Fenster behalten
+        if Length(S) > 4096 then
+          Delete(S, 1, Length(S) - 2048);
+      end;
+    end;
+  finally
+    CloseHandle(H);
   end;
 end;
 
@@ -161,7 +282,7 @@ begin
       else if ContainsStr(KeyUp, PISHOCK_PID_LITE) then
         Gen := dgLite
       else
-        Continue;
+        Gen := dgUnknown;
 
       Info.PortName     := Port.PortName;
       Info.Generation   := Gen;
@@ -182,6 +303,7 @@ begin
   inherited Create;
   FIsConnected := False;
   FBuffer      := '';
+  FInfoRetryCount := 0;
 
   FComDrv := TCommPortDriver.Create(nil);
   FComDrv.BaudRate      := br115200;
@@ -191,10 +313,19 @@ begin
   FComDrv.HwFlow        := hfNONE;
   FComDrv.SwFlow        := sfNONE;
   FComDrv.OnReceiveData := OnReceiveData;
+
+  // Manche Geraete resetten beim Port-Oeffnen (DTR/RTS). Daher wird
+  // info nach dem Connect mehrmals mit Abstand erneut angefordert.
+  FInfoRetryTimer := TTimer.Create(nil);
+  FInfoRetryTimer.Enabled := False;
+  FInfoRetryTimer.Interval := 1200;
+  FInfoRetryTimer.OnTimer := OnInfoRetryTimer;
 end;
 
 destructor TPiShockDevice.Destroy;
 begin
+  StopInfoRetry;
+  FreeAndNil(FInfoRetryTimer);
   Disconnect;
   FreeAndNil(FComDrv);
   inherited Destroy;
@@ -204,6 +335,8 @@ function TPiShockDevice.Connect(const APortName: string): Boolean;
 begin
   Result := False;
   try
+    StopInfoRetry;
+
     if FComDrv.Connected then
       FComDrv.Disconnect;
 
@@ -218,6 +351,8 @@ begin
     if Result then
     begin
       DoLog('Verbunden mit ' + APortName + ' (115200 8N1)');
+      FInfoRetryCount := 0;
+      FInfoRetryTimer.Enabled := True;
       RequestInfo;
     end
     else
@@ -233,12 +368,39 @@ end;
 
 procedure TPiShockDevice.Disconnect;
 begin
+  StopInfoRetry;
   if FComDrv.Connected then
   begin
     FComDrv.Disconnect;
     DoLog('Verbindung getrennt');
   end;
   FIsConnected := False;
+end;
+
+procedure TPiShockDevice.OnInfoRetryTimer(Sender: TObject);
+begin
+  if not FComDrv.Connected then
+  begin
+    StopInfoRetry;
+    Exit;
+  end;
+
+  Inc(FInfoRetryCount);
+  if FInfoRetryCount > 4 then
+  begin
+    StopInfoRetry;
+    DoLog('Keine TERMINALINFO-Antwort empfangen (Timeout)');
+    Exit;
+  end;
+
+  RequestInfo;
+end;
+
+procedure TPiShockDevice.StopInfoRetry;
+begin
+  if Assigned(FInfoRetryTimer) then
+    FInfoRetryTimer.Enabled := False;
+  FInfoRetryCount := 0;
 end;
 
 procedure TPiShockDevice.RequestInfo;
@@ -302,7 +464,8 @@ end;
 
 procedure TPiShockDevice.ProcessBuffer;
 const
-  TERM_PREFIX = 'TERMINALINFO:';
+  TERM_PREFIX_1 = 'TERMINALINFO:';
+  TERM_PREFIX_2 = 'TEREMINALINFO:';
 var
   P    : Integer;
   Line : string;
@@ -325,8 +488,10 @@ begin
     while (FBuffer <> '') and CharInSet(FBuffer[1], [#10, #13]) do
       FBuffer := Copy(FBuffer, 2, MaxInt);
 
-    if StartsStr(TERM_PREFIX, Line) then
-      ParseTerminalInfo(Copy(Line, Length(TERM_PREFIX) + 1, MaxInt));
+    if StartsStr(TERM_PREFIX_1, Line) then
+      ParseTerminalInfo(Copy(Line, Length(TERM_PREFIX_1) + 1, MaxInt))
+    else if StartsStr(TERM_PREFIX_2, Line) then
+      ParseTerminalInfo(Copy(Line, Length(TERM_PREFIX_2) + 1, MaxInt));
   until False;
 end;
 
@@ -377,6 +542,7 @@ begin
     end;
     Info.Shockers := Shockers;
     FDeviceInfo   := Info;
+    StopInfoRetry;
 
     case Info.Generation of
       dgNext: GenStr := 'Next';

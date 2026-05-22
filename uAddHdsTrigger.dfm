@@ -177,8 +177,18 @@ object AddHdsTriggerForm: TAddHdsTriggerForm
     Height = 23
     MaxValue = 1
     MinValue = 1
-    TabOrder = 6
+    TabOrder = 10
+    TabStop = False
     Value = 1
+    Visible = False
+  end
+  object cmbModule: TComboBox
+    Left = 148
+    Top = 242
+    Width = 124
+    Height = 23
+    Style = csDropDownList
+    TabOrder = 6
   end
   object spnIntensity: TSpinEdit
     Left = 148

@@ -45,6 +45,7 @@ type
     lblTarget     : TLabel;
     cmbTarget     : TComboBox;
     lblIndex      : TLabel;
+    cmbModule     : TComboBox;
     spnIndex      : TSpinEdit;
     lblIntensity  : TLabel;
     spnIntensity  : TSpinEdit;
@@ -64,12 +65,20 @@ type
     procedure btnOKClick(Sender: TObject);
 
   private
+    FModuleChoices  : TStringList;
     FMaxShockerIndex: Integer;
+    procedure SetMaxShockerIndex(const Value: Integer);
+    procedure RebuildModuleChoices;
     procedure UpdateControlStates;
     procedure ApplyLanguage;
   public
     property MaxShockerIndex: Integer
-      read FMaxShockerIndex write FMaxShockerIndex;
+      read FMaxShockerIndex write SetMaxShockerIndex;
+
+    destructor Destroy; override;
+
+    /// <summary>Optionale Modulnamen fuer die Auswahl setzen</summary>
+    procedure SetModuleChoices(Choices: TStrings);
 
     /// <summary>Vorhandenen Trigger zum Bearbeiten laden</summary>
     procedure LoadFromTrigger(T: THdsTrigger);
@@ -89,6 +98,7 @@ procedure TAddHdsTriggerForm.FormCreate(Sender: TObject);
 var
   I: Integer;
 begin
+  FModuleChoices := TStringList.Create;
   FMaxShockerIndex := 0;
 
   // Datentyp-Combobox
@@ -113,11 +123,61 @@ begin
   spnIndex.MinValue     := 1;
   spnIndex.MaxValue     := 1;
   spnIndex.Value        := 1;
+  spnIndex.Visible      := False;
+  spnIndex.TabStop      := False;
+
+  cmbModule.Style       := csDropDownList;
 
   edtThreshold.Text := '120';
 
   ApplyLanguage;
+  RebuildModuleChoices;
   UpdateControlStates;
+end;
+
+procedure TAddHdsTriggerForm.SetMaxShockerIndex(const Value: Integer);
+begin
+  FMaxShockerIndex := Value;
+  RebuildModuleChoices;
+end;
+
+procedure TAddHdsTriggerForm.SetModuleChoices(Choices: TStrings);
+begin
+  FModuleChoices.Clear;
+  if Assigned(Choices) then
+    FModuleChoices.AddStrings(Choices);
+  RebuildModuleChoices;
+end;
+
+procedure TAddHdsTriggerForm.RebuildModuleChoices;
+var
+  I: Integer;
+  PrevIdx: Integer;
+  MaxIdx: Integer;
+begin
+  PrevIdx := cmbModule.ItemIndex;
+  cmbModule.Items.Clear;
+
+  if FModuleChoices.Count > 0 then
+    cmbModule.Items.AddStrings(FModuleChoices)
+  else
+  begin
+    if FMaxShockerIndex > 0 then
+      MaxIdx := FMaxShockerIndex
+    else
+      MaxIdx := 99;
+
+    for I := 1 to MaxIdx do
+      cmbModule.Items.Add('Module ' + IntToStr(I));
+  end;
+
+  if (PrevIdx >= 0) and (PrevIdx < cmbModule.Items.Count) then
+    cmbModule.ItemIndex := PrevIdx
+  else if cmbModule.Items.Count > 0 then
+    cmbModule.ItemIndex := 0;
+
+  if cmbModule.ItemIndex >= 0 then
+    spnIndex.Value := cmbModule.ItemIndex + 1;
 end;
 
 procedure TAddHdsTriggerForm.ApplyLanguage;
@@ -154,6 +214,8 @@ begin
   cmbTarget.Items.AddStrings([LS.CmbTgtAll, LS.CmbTgtSpecific, LS.CmbTgtRandom]);
   if SelTgt >= 0 then cmbTarget.ItemIndex := SelTgt
   else cmbTarget.ItemIndex := 0;
+
+  RebuildModuleChoices;
 end;
 
 procedure TAddHdsTriggerForm.UpdateControlStates;
@@ -176,7 +238,7 @@ begin
   lblDurMs.Enabled     := spnDuration.Enabled;
 
   // Modul-Index nur fuer "Spezifisch"
-  spnIndex.Enabled     := IsSpec;
+  cmbModule.Enabled    := IsSpec;
   lblIndex.Enabled     := IsSpec;
 
   // Modul-Spinner begrenzen
@@ -187,6 +249,9 @@ begin
   spnIndex.MaxValue := MaxIdx;
   if spnIndex.Value > MaxIdx then
     spnIndex.Value := MaxIdx;
+
+  if cmbModule.ItemIndex < 0 then
+    cmbModule.ItemIndex := 0;
 end;
 
 procedure TAddHdsTriggerForm.cmbOperationChange(Sender: TObject);
@@ -239,7 +304,11 @@ begin
   spnCooldown.Value     := T.CooldownSec;
   cmbOperation.ItemIndex := Ord(T.OpType);
   cmbTarget.ItemIndex   := Ord(T.TargetType);
-  spnIndex.Value        := T.ShockerIndex + 1;
+  if (T.ShockerIndex >= 0) and (T.ShockerIndex < cmbModule.Items.Count) then
+    cmbModule.ItemIndex := T.ShockerIndex
+  else
+    cmbModule.ItemIndex := 0;
+  spnIndex.Value        := cmbModule.ItemIndex + 1;
   spnIntensity.Value    := T.Intensity;
   spnDuration.Value     := T.Duration;
 
@@ -267,9 +336,18 @@ begin
   Result.CooldownSec   := spnCooldown.Value;
   Result.OpType        := TOpType(cmbOperation.ItemIndex);
   Result.TargetType    := TTargetType(cmbTarget.ItemIndex);
-  Result.ShockerIndex  := spnIndex.Value - 1;
+  if cmbModule.ItemIndex >= 0 then
+    Result.ShockerIndex := cmbModule.ItemIndex
+  else
+    Result.ShockerIndex := spnIndex.Value - 1;
   Result.Intensity     := spnIntensity.Value;
   Result.Duration      := spnDuration.Value;
+end;
+
+destructor TAddHdsTriggerForm.Destroy;
+begin
+  FModuleChoices.Free;
+  inherited;
 end;
 
 end.

@@ -18,6 +18,9 @@ type
   /// <summary>Welche Module angesprochen werden</summary>
   TTargetType = (ttAll, ttSpecific, ttRandom);
 
+  /// <summary>Vergleich fuer optionale HDS-Abhaengigkeit im Mapping</summary>
+  THdsGateCondition = (hgcAbove, hgcAboveOrEqual, hgcBelow, hgcBelowOrEqual);
+
   /// <summary>Eine Befehlszuordnung: Trigger-String -> PiShock-Operation</summary>
   TCommandMapping = class
   public
@@ -28,12 +31,21 @@ type
     Intensity     : Integer;      // Intensitaet 0-100 (nicht fuer beep/end)
     Duration      : Integer;      // Dauer in Millisekunden (nicht fuer end)
 
+    // Optionale HDS-Abhaengigkeit (wird vor WS-Ausfuehrung geprueft)
+    HdsRequired   : Boolean;
+    HdsDataTypeKey: string;
+    HdsCondition  : THdsGateCondition;
+    HdsThreshold  : Double;
+
     constructor Create; overload;
     constructor Create(const ATrigger: string; AOp: TOpType;
       ATarget: TTargetType; AIdx, AIntensity, ADuration: Integer); overload;
 
     /// <summary>Lesbare Beschreibung der Zuordnung</summary>
     function Describe: string;
+
+    /// <summary>Prueft die konfigurierte HDS-Bedingung gegen einen Messwert</summary>
+    function IsHdsConditionMet(AValue: Double): Boolean;
 
     /// <summary>Kopie dieser Zuordnung erstellen</summary>
     function Clone: TCommandMapping;
@@ -51,6 +63,8 @@ const
   /// <summary>Anzeigetext fuer TargetType</summary>
   TargetTypeStr: array[TTargetType] of string = ('Alle', 'Spezifisch', 'Zuf'#228'llig');
 
+  HdsGateCondSym: array[THdsGateCondition] of string = ('>', '>=', '<', '<=');
+
 implementation
 
 constructor TCommandMapping.Create;
@@ -62,6 +76,10 @@ begin
   ShockerIndex  := 0;
   Intensity     := 50;
   Duration      := 1000;
+  HdsRequired   := False;
+  HdsDataTypeKey:= 'heartRate';
+  HdsCondition  := hgcAbove;
+  HdsThreshold  := 120.0;
 end;
 
 constructor TCommandMapping.Create(const ATrigger: string; AOp: TOpType;
@@ -79,6 +97,7 @@ end;
 function TCommandMapping.Describe: string;
 var
   TargStr: string;
+  BaseStr: string;
 begin
   case TargetType of
     ttAll:      TargStr := 'Alle';
@@ -88,14 +107,31 @@ begin
 
   case OpType of
     opShock, opVibrate:
-      Result := Format('%s %d%% %dms (%s)',
+      BaseStr := Format('%s %d%% %dms (%s)',
         [OpTypeStr[OpType], Intensity, Duration, TargStr]);
     opBeep:
-      Result := Format('%s %dms (%s)',
+      BaseStr := Format('%s %dms (%s)',
         [OpTypeStr[OpType], Duration, TargStr]);
     opEnd:
-      Result := Format('%s (%s)',
+      BaseStr := Format('%s (%s)',
         [OpTypeStr[OpType], TargStr]);
+  end;
+
+  if HdsRequired then
+    Result := BaseStr + Format(' | HDS: %s %s %.6g',
+      [HdsDataTypeKey, HdsGateCondSym[HdsCondition], HdsThreshold])
+  else
+    Result := BaseStr;
+end;
+
+function TCommandMapping.IsHdsConditionMet(AValue: Double): Boolean;
+begin
+  case HdsCondition of
+    hgcAbove:        Result := AValue > HdsThreshold;
+    hgcAboveOrEqual: Result := AValue >= HdsThreshold;
+    hgcBelow:        Result := AValue < HdsThreshold;
+  else
+    Result := AValue <= HdsThreshold;
   end;
 end;
 
@@ -103,6 +139,10 @@ function TCommandMapping.Clone: TCommandMapping;
 begin
   Result := TCommandMapping.Create(TriggerString, OpType, TargetType,
     ShockerIndex, Intensity, Duration);
+  Result.HdsRequired    := HdsRequired;
+  Result.HdsDataTypeKey := HdsDataTypeKey;
+  Result.HdsCondition   := HdsCondition;
+  Result.HdsThreshold   := HdsThreshold;
 end;
 
 end.

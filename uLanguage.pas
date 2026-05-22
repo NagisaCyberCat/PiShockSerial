@@ -35,10 +35,12 @@ type
     BtnAddMap              : string;
     BtnEditMap             : string;
     BtnDelMap              : string;
+    BtnTestMap             : string;
     BtnEmergencyStop       : string;
     BtnShowLog             : string;
     MnuSettings            : string;
     MnuConfig              : string;
+    MnuModuleNames         : string;
 
     // ---- Status strings ----------------------------------------------------
     StatusConnected        : string;
@@ -61,7 +63,11 @@ type
     MsgInvalidHdsPort      : string;
     MsgHdsStartFailed      : string;
     MsgHdsServerFailed     : string;
+    MsgNoModulesForNames   : string;
+    MsgDetectConnectFmt    : string;   // 'Detected on %s. Connect now?'
+    MsgDetectConnectTitle  : string;
     LogNoPiShock           : string;
+    LogNoPiShockFallbackFmt: string;   // 'No PiShock by VID/PID, available COM ports: %s'
     LogPiShockFoundFmt     : string;   // 'PiShock detected: %s'
     LogDevNotConnCmd       : string;
     LogNoModulesCmd        : string;
@@ -69,6 +75,8 @@ type
     LogExecutingFmt        : string;   // 'Executing: [%s] %s'
     LogWsCmdReceivedFmt    : string;   // '[WS] Command received: "%s"'
     LogWsNoMappingFmt      : string;   // '[WS] No mapping for: "%s"'
+    LogWsHdsBlockedFmt     : string;
+    LogWsHdsNotMetFmt      : string;
     LogDevNotConnHds       : string;
     LogNoModulesHds        : string;
     LogEmergencyStop       : string;
@@ -102,6 +110,7 @@ type
     CmbTgtAll              : string;
     CmbTgtSpecific         : string;
     CmbTgtRandom           : string;
+    LblHdsRequired         : string;
     MsgEnterTrigger        : string;
 
     // ---- AddHdsTrigger Form ------------------------------------------------
@@ -132,6 +141,15 @@ type
     // ---- Log Form ----------------------------------------------------------
     LogFormCaption         : string;
     BtnClearLog            : string;
+
+    // ---- Module Names Form -------------------------------------------------
+    ModuleNamesCaption     : string;
+    ModuleNamesColIndex    : string;
+    ModuleNamesColId       : string;
+    ModuleNamesColName     : string;
+    ModuleNamesLblName     : string;
+    ModuleNamesBtnSave     : string;
+    ModuleNamesBtnClose    : string;
   end;
 
 var
@@ -169,10 +187,12 @@ begin
       LS.BtnAddMap              := '+ New';
       LS.BtnEditMap             := 'Edit';
       LS.BtnDelMap              := 'Del';
+      LS.BtnTestMap             := 'Test';
       LS.BtnEmergencyStop       := #9888' EMERGENCY STOP (WebSocket + all modules)';
       LS.BtnShowLog             := 'Show log window';
       LS.MnuSettings            := 'Settings';
       LS.MnuConfig              := 'Configuration...';
+      LS.MnuModuleNames         := 'Module names...';
       // Status
       LS.StatusConnected        := #$25CF + ' Connected';
       LS.StatusNotConnected     := #$25CF + ' Not connected';
@@ -193,7 +213,11 @@ begin
       LS.MsgInvalidHdsPort      := 'Invalid HDS port. Please correct in settings.';
       LS.MsgHdsStartFailed      := 'HDS start failed: ';
       LS.MsgHdsServerFailed     := 'HDS server could not be started:'#13#10;
+      LS.MsgNoModulesForNames   := 'No modules known yet. Connect device first.';
+      LS.MsgDetectConnectFmt    := 'PiShock detected on %s. Connect now?';
+      LS.MsgDetectConnectTitle  := 'PiShock detected';
       LS.LogNoPiShock           := 'No PiShock device detected (VID=1A86).';
+      LS.LogNoPiShockFallbackFmt:= 'No PiShock by VID/PID detected. Available COM ports: %s';
       LS.LogPiShockFoundFmt     := 'PiShock detected: %s';
       LS.LogDevNotConnCmd       := 'Device not connected - command ignored';
       LS.LogNoModulesCmd        := 'No modules known (no "info" received yet?)';
@@ -201,6 +225,8 @@ begin
       LS.LogExecutingFmt        := 'Executing: [%s] %s';
       LS.LogWsCmdReceivedFmt    := '[WS] Command received: "%s"';
       LS.LogWsNoMappingFmt      := '[WS] No mapping for: "%s"';
+      LS.LogWsHdsBlockedFmt     := '[WS] HDS check blocked for "%s": no value for %s';
+      LS.LogWsHdsNotMetFmt      := '[WS] HDS condition not met for "%s": %s %s %.6g (current %.6g)';
       LS.LogDevNotConnHds       := 'Device not connected - HDS trigger ignored';
       LS.LogNoModulesHds        := 'No modules known - HDS trigger ignored';
       LS.LogEmergencyStop       := '>>> EMERGENCY STOP triggered! <<<';
@@ -208,7 +234,7 @@ begin
       LS.LogHotkeyFailed        := 'Note: Hotkey could not be registered (already in use?)';
       LS.LogReady               := 'PiShock Serial Controller ready.';
       LS.LogTipHds              := 'Tip: HDS Watch app sends via HTTP PUT to port 3476.';
-      LS.LogTipDetect           := 'Tip: "Detect" uses VID=0x1A86, PID=0x7523 (Next) / 0x55D4 (Lite)';
+      LS.LogTipDetect           := 'Tip: "Detect" prefers VID=0x1A86 and falls back to listing available COM ports.';
       LS.LogSerialPrefix        := '[Serial] ';
       LS.ConfirmDeleteMappingFmt := 'Delete mapping "%s"?';
       // Settings Form
@@ -232,6 +258,7 @@ begin
       LS.CmbTgtAll              := 'All';
       LS.CmbTgtSpecific         := 'Specific';
       LS.CmbTgtRandom           := 'Random';
+      LS.LblHdsRequired         := 'HDS condition required';
       LS.MsgEnterTrigger        := 'Please enter a trigger string.';
       // AddHdsTrigger Form
       LS.AddHdsTriggerCaption   := 'HDS Trigger';
@@ -259,6 +286,15 @@ begin
       // Log Form
       LS.LogFormCaption         := 'PiShock - Log';
       LS.BtnClearLog            := 'Clear log';
+
+      // Module Names Form
+      LS.ModuleNamesCaption     := 'Module names';
+      LS.ModuleNamesColIndex    := '#';
+      LS.ModuleNamesColId       := 'Shocker ID';
+      LS.ModuleNamesColName     := 'Name';
+      LS.ModuleNamesLblName     := 'Name:';
+      LS.ModuleNamesBtnSave     := 'Save name';
+      LS.ModuleNamesBtnClose    := 'Close';
     end;
 
     langGerman:
@@ -283,10 +319,12 @@ begin
       LS.BtnAddMap              := '+ Neu';
       LS.BtnEditMap             := 'Bear.';
       LS.BtnDelMap              := 'L'#246'sch';
+      LS.BtnTestMap             := 'Test';
       LS.BtnEmergencyStop       := #9888' NOT-STOP (WebSocket + alle Module)';
       LS.BtnShowLog             := 'Log-Fenster anzeigen';
       LS.MnuSettings            := 'Einstellungen';
       LS.MnuConfig              := 'Konfiguration...';
+      LS.MnuModuleNames         := 'Modulnamen...';
       // Status
       LS.StatusConnected        := #$25CF + ' Verbunden';
       LS.StatusNotConnected     := #$25CF + ' Nicht verbunden';
@@ -307,7 +345,11 @@ begin
       LS.MsgInvalidHdsPort      := 'Ung'#252'ltiger HDS-Port. Bitte in Einstellungen korrigieren.';
       LS.MsgHdsStartFailed      := 'HDS-Start fehlgeschlagen: ';
       LS.MsgHdsServerFailed     := 'HDS-Server konnte nicht gestartet werden:'#13#10;
+      LS.MsgNoModulesForNames   := 'Noch keine Module bekannt. Erst Geraet verbinden.';
+      LS.MsgDetectConnectFmt    := 'PiShock erkannt auf %s. Jetzt verbinden?';
+      LS.MsgDetectConnectTitle  := 'PiShock erkannt';
       LS.LogNoPiShock           := 'Kein PiShock-Ger'#228't erkannt (VID=1A86).';
+      LS.LogNoPiShockFallbackFmt:= 'Kein PiShock per VID/PID erkannt. Verfuegbare COM-Ports: %s';
       LS.LogPiShockFoundFmt     := 'PiShock erkannt: %s';
       LS.LogDevNotConnCmd       := 'Ger'#228't nicht verbunden - Befehl ignoriert';
       LS.LogNoModulesCmd        := 'Keine Module bekannt (noch kein "info" empfangen?)';
@@ -315,6 +357,8 @@ begin
       LS.LogExecutingFmt        := 'Ausf'#252'hre: [%s] %s';
       LS.LogWsCmdReceivedFmt    := '[WS] Befehl empfangen: "%s"';
       LS.LogWsNoMappingFmt      := '[WS] Kein Mapping f'#252'r: "%s"';
+      LS.LogWsHdsBlockedFmt     := '[WS] HDS-Pr'#252'fung blockiert f'#252'r "%s": kein Wert f'#252'r %s';
+      LS.LogWsHdsNotMetFmt      := '[WS] HDS-Bedingung nicht erf'#252'llt f'#252'r "%s": %s %s %.6g (aktuell %.6g)';
       LS.LogDevNotConnHds       := 'Ger'#228't nicht verbunden - HDS-Trigger ignoriert';
       LS.LogNoModulesHds        := 'Keine Module bekannt - HDS-Trigger ignoriert';
       LS.LogEmergencyStop       := '>>> NOT-STOP ausgel'#246'st! <<<';
@@ -322,7 +366,7 @@ begin
       LS.LogHotkeyFailed        := 'Hinweis: Hotkey konnte nicht registriert werden (bereits belegt?)';
       LS.LogReady               := 'PiShock Seriell-Controller bereit.';
       LS.LogTipHds              := 'Tipp: HDS Watch-App sendet per HTTP PUT an Port 3476.';
-      LS.LogTipDetect           := 'Tipp: "Erkennen" nutzt VID=0x1A86, PID=0x7523 (Next) / 0x55D4 (Lite)';
+      LS.LogTipDetect           := 'Tipp: "Erkennen" bevorzugt VID=0x1A86 und zeigt sonst verfuegbare COM-Ports an.';
       LS.LogSerialPrefix        := '[Seriell] ';
       LS.ConfirmDeleteMappingFmt := 'Zuordnung "%s" l'#246'schen?';
       // Settings Form
@@ -346,6 +390,7 @@ begin
       LS.CmbTgtAll              := 'Alle';
       LS.CmbTgtSpecific         := 'Spezifisch';
       LS.CmbTgtRandom           := 'Zuf'#228'llig';
+      LS.LblHdsRequired         := 'HDS-Bedingung erforderlich';
       LS.MsgEnterTrigger        := 'Bitte einen Ausl'#246'sestring eingeben.';
       // AddHdsTrigger Form
       LS.AddHdsTriggerCaption   := 'HDS-Trigger';
@@ -373,6 +418,15 @@ begin
       // Log Form
       LS.LogFormCaption         := 'PiShock - Log';
       LS.BtnClearLog            := 'Log leeren';
+
+      // Module Names Form
+      LS.ModuleNamesCaption     := 'Modulnamen';
+      LS.ModuleNamesColIndex    := '#';
+      LS.ModuleNamesColId       := 'Shocker-ID';
+      LS.ModuleNamesColName     := 'Name';
+      LS.ModuleNamesLblName     := 'Name:';
+      LS.ModuleNamesBtnSave     := 'Namen speichern';
+      LS.ModuleNamesBtnClose    := 'Schliessen';
     end;
 
   end;

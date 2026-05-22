@@ -57,6 +57,7 @@ type
     btnAddMap        : TButton;
     btnEditMap       : TButton;
     btnDelMap        : TButton;
+    btnTestMap       : TButton;
 
     // NOT-STOP + Log
     btnEmergencyStop : TButton;
@@ -66,6 +67,7 @@ type
     mnuMain          : TMainMenu;
     mnuEinstellungen : TMenuItem;
     mnuConfig        : TMenuItem;
+    mnuModuleNames   : TMenuItem;
 
     // ---- Events ---------------------------------------------------------
     procedure FormCreate(Sender: TObject);
@@ -81,11 +83,13 @@ type
     procedure btnAddMapClick(Sender: TObject);
     procedure btnEditMapClick(Sender: TObject);
     procedure btnDelMapClick(Sender: TObject);
+    procedure btnTestMapClick(Sender: TObject);
     procedure lvMappingsDblClick(Sender: TObject);
     procedure lvMappingsSelectItem(Sender: TObject; Item: TListItem;
       Selected: Boolean);
     procedure btnShowLogClick(Sender: TObject);
     procedure mnuConfigClick(Sender: TObject);
+    procedure mnuModuleNamesClick(Sender: TObject);
 
   private
     FDevice           : TPiShockDevice;
@@ -93,9 +97,13 @@ type
     FHdsServer        : THdsHttpServer;
     FMappings         : TCommandMappingList;
     FHdsTriggers      : THdsTriggerList;
+    FModuleNames      : TDictionary<Integer, string>;
+    FLatestHdsValues  : TDictionary<string, Double>;
     FWsPort           : string;
     FWsToken          : string;
     FHdsPort          : string;
+    FLastComPort      : string;
+    FAutoConnectLast  : Boolean;
     FHotkeyVal        : TShortCut;
     FHotkeyRegistered : Boolean;
 
@@ -139,7 +147,7 @@ implementation
 {$R *.dfm}
 
 uses
-  StrUtils, System.DateUtils, IniFiles, uLogForm;
+  StrUtils, System.DateUtils, IniFiles, uLogForm, uModuleNamesForm;
 
 { ---- Formular-Initialisierung --------------------------------------------- }
 
@@ -150,6 +158,8 @@ begin
 
   FMappings := TCommandMappingList.Create(True);  // owns objects
   FHdsTriggers := THdsTriggerList.Create(True);
+  FModuleNames := TDictionary<Integer, string>.Create;
+  FLatestHdsValues := TDictionary<string, Double>.Create;
 
   // Geraet
   FDevice              := TPiShockDevice.Create;
@@ -185,6 +195,8 @@ begin
   FWsPort    := '8765';
   FWsToken   := '';
   FHdsPort   := '3476';
+  FLastComPort := '';
+  FAutoConnectLast := True;
   FHotkeyVal := 32833; // Shift+F1
 
   // INI laden (WS-Port, Token, HDS-Port, Hotkey, Mappings, HDS-Trigger)
@@ -192,6 +204,11 @@ begin
 
   // Sprache auf alle Formulare anwenden (nach LoadSettings, damit Sprache bekannt ist)
   ApplyLanguage;
+
+  // Gespeicherten COM-Port wieder auswaehlen (falls vorhanden)
+  if (Trim(FLastComPort) <> '') and
+     (cmbPort.Items.IndexOf(FLastComPort) >= 0) then
+    cmbPort.ItemIndex := cmbPort.Items.IndexOf(FLastComPort);
 
   // HDS-Trigger-Liste neu aufbauen (nach LoadSettings)
   HdsForm.RefreshList;
@@ -217,6 +234,18 @@ begin
   AddLog(LS.LogReady);
   AddLog(LS.LogTipHds);
   AddLog(LS.LogTipDetect);
+
+  // Optionaler Auto-Connect auf zuletzt erfolgreichen Port
+  if FAutoConnectLast and (Trim(FLastComPort) <> '') and
+     (cmbPort.Items.IndexOf(FLastComPort) >= 0) then
+  begin
+    if FDevice.Connect(FLastComPort) then
+    begin
+      cmbPort.ItemIndex := cmbPort.Items.IndexOf(FLastComPort);
+      UpdateDeviceUI;
+      SaveSettings;
+    end;
+  end;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
@@ -234,6 +263,8 @@ begin
   FDevice.EndAll;
   FDevice.Disconnect;
   FDevice.Free;
+  FLatestHdsValues.Free;
+  FModuleNames.Free;
   FMappings.Free;
   FHdsTriggers.Free;
 end;
@@ -242,17 +273,81 @@ end;
 
 procedure TForm1.btnDetectClick(Sender: TObject);
 var
-  Ports : TArray<TPiShockPortInfo>;
-  P     : TPiShockPortInfo;
-  Found : string;
+  Ports        : TArray<TPiShockPortInfo>;
+  P            : TPiShockPortInfo;
+  Found        : string;
+  SelectedPort : string;
+  I            : Integer;
+  Num          : Integer;
+  BestNum      : Integer;
+  BestIndex    : Integer;
 begin
   Ports := FindPiShockPorts;
   cmbPort.Items.Clear;
   GetAllComPorts(cmbPort.Items);
 
+  // Fallback-Vorauswahl: hoechste COM-Nummer (oft zuletzt eingestecktes Geraet)
+  BestNum := -1;
+  BestIndex := -1;
+  for I := 0 to cmbPort.Items.Count - 1 do
+  begin
+    Num := -1;
+    if StartsText('COM', UpperCase(cmbPort.Items[I])) then
+      if TryStrToInt(Copy(cmbPort.Items[I], 4, MaxInt), Num) then
+        if Num > BestNum then
+        begin
+          BestNum := Num;
+          BestIndex := I;
+        end;
+  end;
+  if BestIndex >= 0 then
+    cmbPort.ItemIndex := BestIndex;
+
   if Length(Ports) = 0 then
   begin
-    AddLog(LS.LogNoPiShock);
+    // Fallback: aktive Probe ueber Serial-API, falls VID/PID-Scan versagt.
+    Found := '';
+    for I := 0 to cmbPort.Items.Count - 1 do
+    begin
+      if ProbePiShockPort(cmbPort.Items[I], 1800) then
+      begin
+        Found := Found + cmbPort.Items[I] + ' ';
+        if cmbPort.ItemIndex < 0 then
+          cmbPort.ItemIndex := I;
+      end;
+    end;
+
+    if Found <> '' then
+    begin
+      AddLog(Format(LS.LogPiShockFoundFmt, [Trim(Found)]));
+      if cmbPort.ItemIndex >= 0 then
+      begin
+        SelectedPort := cmbPort.Items[cmbPort.ItemIndex];
+        if Application.MessageBox(
+          PChar(Format(LS.MsgDetectConnectFmt, [SelectedPort])),
+          PChar(LS.MsgDetectConnectTitle),
+          MB_ICONQUESTION or MB_YESNO or MB_DEFBUTTON1) = IDYES then
+        begin
+          if FDevice.Connect(SelectedPort) then
+          begin
+            FLastComPort := SelectedPort;
+            SaveSettings;
+          end;
+          UpdateDeviceUI;
+        end;
+      end;
+      Exit;
+    end;
+
+    if cmbPort.Items.Count > 0 then
+    begin
+      Found := '';
+      for I := 0 to cmbPort.Items.Count - 1 do
+        Found := Found + cmbPort.Items[I] + ' ';
+      AddLog(Format(LS.LogNoPiShockFallbackFmt, [Trim(Found)]));
+    end
+    else
+      AddLog(LS.LogNoPiShock);
     Exit;
   end;
 
@@ -266,6 +361,23 @@ begin
   end;
 
   AddLog(Format(LS.LogPiShockFoundFmt, [Trim(Found)]));
+
+  if cmbPort.ItemIndex >= 0 then
+  begin
+    SelectedPort := cmbPort.Items[cmbPort.ItemIndex];
+    if Application.MessageBox(
+      PChar(Format(LS.MsgDetectConnectFmt, [SelectedPort])),
+      PChar(LS.MsgDetectConnectTitle),
+      MB_ICONQUESTION or MB_YESNO or MB_DEFBUTTON1) = IDYES then
+    begin
+      if FDevice.Connect(SelectedPort) then
+      begin
+        FLastComPort := SelectedPort;
+        SaveSettings;
+      end;
+      UpdateDeviceUI;
+    end;
+  end;
 end;
 
 procedure TForm1.btnConnectClick(Sender: TObject);
@@ -282,7 +394,11 @@ begin
       ShowMessage(LS.MsgSelectComPort);
       Exit;
     end;
-    FDevice.Connect(cmbPort.Items[cmbPort.ItemIndex]);
+    if FDevice.Connect(cmbPort.Items[cmbPort.ItemIndex]) then
+    begin
+      FLastComPort := cmbPort.Items[cmbPort.ItemIndex];
+      SaveSettings;
+    end;
     UpdateDeviceUI;
   end;
 end;
@@ -392,7 +508,29 @@ begin
 end;
 
 procedure TForm1.btnHdsTriggerClick(Sender: TObject);
+var
+  Shockers: TArray<TShockerInfo>;
+  Labels  : TStringList;
+  I       : Integer;
+  NameVal : string;
 begin
+  Shockers := FDevice.DeviceInfo.Shockers;
+  Labels := TStringList.Create;
+  try
+    for I := 0 to High(Shockers) do
+    begin
+      NameVal := '';
+      if FModuleNames.TryGetValue(Shockers[I].ID, NameVal) and
+         (Trim(NameVal) <> '') then
+        Labels.Add(NameVal + ' (ID ' + IntToStr(Shockers[I].ID) + ')')
+      else
+        Labels.Add(IntToStr(I + 1) + ' (ID ' + IntToStr(Shockers[I].ID) + ')');
+    end;
+    HdsForm.SetModuleChoices(Labels);
+  finally
+    Labels.Free;
+  end;
+
   HdsForm.Show;
   HdsForm.BringToFront;
 end;
@@ -419,6 +557,8 @@ procedure TForm1.OnHdsData(const DataType: string; Value: Double);
 var
   T : THdsTrigger;
 begin
+  FLatestHdsValues.AddOrSetValue(LowerCase(DataType), Value);
+
   for T in FHdsTriggers do
     if T.ShouldFire(DataType, Value) then
     begin
@@ -478,13 +618,34 @@ end;
 
 procedure TForm1.OnWsCommand(const Cmd: string);
 var
-  M : TCommandMapping;
+  M      : TCommandMapping;
+  HdsVal : Double;
+  HdsKey : string;
 begin
   AddLog(Format(LS.LogWsCmdReceivedFmt, [Cmd]));
 
   for M in FMappings do
     if SameText(M.TriggerString, Cmd) then
     begin
+      if M.HdsRequired then
+      begin
+        HdsKey := LowerCase(Trim(M.HdsDataTypeKey));
+        if (HdsKey = '') or (not FLatestHdsValues.TryGetValue(HdsKey, HdsVal)) then
+        begin
+          AddLog(Format(LS.LogWsHdsBlockedFmt,
+            [Cmd, M.HdsDataTypeKey]));
+          Exit;
+        end;
+
+        if not M.IsHdsConditionMet(HdsVal) then
+        begin
+          AddLog(Format(LS.LogWsHdsNotMetFmt,
+            [Cmd, M.HdsDataTypeKey, HdsGateCondSym[M.HdsCondition],
+             M.HdsThreshold, HdsVal]));
+          Exit;
+        end;
+      end;
+
       ExecuteMapping(M);
       Exit;
     end;
@@ -634,16 +795,35 @@ begin
   HasSel           := lvMappings.Selected <> nil;
   btnEditMap.Enabled := HasSel;
   btnDelMap.Enabled  := HasSel;
+  btnTestMap.Enabled := HasSel;
 end;
 
 procedure TForm1.btnAddMapClick(Sender: TObject);
 var
-  Dlg : TAddMappingForm;
-  M   : TCommandMapping;
+  Dlg      : TAddMappingForm;
+  M        : TCommandMapping;
+  Shockers : TArray<TShockerInfo>;
+  Labels   : TStringList;
+  I        : Integer;
+  NameVal  : string;
 begin
   Dlg := TAddMappingForm.Create(Self);
+  Labels := TStringList.Create;
   try
-    Dlg.MaxShockerIndex := Length(FDevice.DeviceInfo.Shockers);
+    Shockers := FDevice.DeviceInfo.Shockers;
+    Dlg.MaxShockerIndex := Length(Shockers);
+
+    for I := 0 to High(Shockers) do
+    begin
+      NameVal := '';
+      if FModuleNames.TryGetValue(Shockers[I].ID, NameVal) and
+         (Trim(NameVal) <> '') then
+        Labels.Add(NameVal + ' (ID ' + IntToStr(Shockers[I].ID) + ')')
+      else
+        Labels.Add(IntToStr(I + 1) + ' (ID ' + IntToStr(Shockers[I].ID) + ')');
+    end;
+    Dlg.SetModuleChoices(Labels);
+
     if Dlg.ShowModal = mrOk then
     begin
       M := Dlg.GetMapping;
@@ -651,16 +831,21 @@ begin
       RefreshMappingList;
     end;
   finally
+    Labels.Free;
     Dlg.Free;
   end;
 end;
 
 procedure TForm1.btnEditMapClick(Sender: TObject);
 var
-  Dlg     : TAddMappingForm;
-  Existing: TCommandMapping;
-  Updated : TCommandMapping;
-  Idx     : Integer;
+  Dlg      : TAddMappingForm;
+  Existing : TCommandMapping;
+  Updated  : TCommandMapping;
+  Idx      : Integer;
+  Shockers : TArray<TShockerInfo>;
+  Labels   : TStringList;
+  I        : Integer;
+  NameVal  : string;
 begin
   Existing := SelectedMapping;
   if Existing = nil then
@@ -668,8 +853,22 @@ begin
   Idx := lvMappings.Selected.Index;
 
   Dlg := TAddMappingForm.Create(Self);
+  Labels := TStringList.Create;
   try
-    Dlg.MaxShockerIndex := Length(FDevice.DeviceInfo.Shockers);
+    Shockers := FDevice.DeviceInfo.Shockers;
+    Dlg.MaxShockerIndex := Length(Shockers);
+
+    for I := 0 to High(Shockers) do
+    begin
+      NameVal := '';
+      if FModuleNames.TryGetValue(Shockers[I].ID, NameVal) and
+         (Trim(NameVal) <> '') then
+        Labels.Add(NameVal + ' (ID ' + IntToStr(Shockers[I].ID) + ')')
+      else
+        Labels.Add(IntToStr(I + 1) + ' (ID ' + IntToStr(Shockers[I].ID) + ')');
+    end;
+    Dlg.SetModuleChoices(Labels);
+
     Dlg.LoadFromMapping(Existing);
     if Dlg.ShowModal = mrOk then
     begin
@@ -679,6 +878,7 @@ begin
       RefreshMappingList;
     end;
   finally
+    Labels.Free;
     Dlg.Free;
   end;
 end;
@@ -699,6 +899,37 @@ begin
     FMappings.Delete(Idx);
     RefreshMappingList;
   end;
+end;
+
+procedure TForm1.btnTestMapClick(Sender: TObject);
+var
+  M      : TCommandMapping;
+  HdsVal : Double;
+  HdsKey : string;
+begin
+  M := SelectedMapping;
+  if M = nil then
+    Exit;
+
+  if M.HdsRequired then
+  begin
+    HdsKey := LowerCase(Trim(M.HdsDataTypeKey));
+    if (HdsKey = '') or (not FLatestHdsValues.TryGetValue(HdsKey, HdsVal)) then
+    begin
+      AddLog(Format(LS.LogWsHdsBlockedFmt, [M.TriggerString, M.HdsDataTypeKey]));
+      Exit;
+    end;
+
+    if not M.IsHdsConditionMet(HdsVal) then
+    begin
+      AddLog(Format(LS.LogWsHdsNotMetFmt,
+        [M.TriggerString, M.HdsDataTypeKey, HdsGateCondSym[M.HdsCondition],
+         M.HdsThreshold, HdsVal]));
+      Exit;
+    end;
+  end;
+
+  ExecuteMapping(M);
 end;
 
 procedure TForm1.lvMappingsDblClick(Sender: TObject);
@@ -761,6 +992,29 @@ begin
   end;
 end;
 
+procedure TForm1.mnuModuleNamesClick(Sender: TObject);
+var
+  Dlg      : TModuleNamesForm;
+  Shockers : TArray<TShockerInfo>;
+begin
+  Shockers := FDevice.DeviceInfo.Shockers;
+  if Length(Shockers) = 0 then
+  begin
+    ShowMessage(LS.MsgNoModulesForNames);
+    Exit;
+  end;
+
+  Dlg := TModuleNamesForm.Create(Self);
+  try
+    Dlg.Setup(Shockers, FModuleNames);
+    Dlg.ApplyLanguage;
+    Dlg.ShowModal;
+    SaveSettings;
+  finally
+    Dlg.Free;
+  end;
+end;
+
 procedure TForm1.btnShowLogClick(Sender: TObject);
 begin
   LogForm.Show;
@@ -812,10 +1066,12 @@ begin
   btnAddMap.Caption        := LS.BtnAddMap;
   btnEditMap.Caption       := LS.BtnEditMap;
   btnDelMap.Caption        := LS.BtnDelMap;
+  btnTestMap.Caption       := LS.BtnTestMap;
   btnEmergencyStop.Caption := LS.BtnEmergencyStop;
   btnShowLog.Caption       := LS.BtnShowLog;
   mnuEinstellungen.Caption := LS.MnuSettings;
   mnuConfig.Caption        := LS.MnuConfig;
+  mnuModuleNames.Caption   := LS.MnuModuleNames;
 
   if lvMappings.Columns.Count >= 2 then
   begin
@@ -838,6 +1094,8 @@ var
   Count : Integer;
   I     : Integer;
   M     : TCommandMapping;
+  ModId : Integer;
+  ModName: string;
 begin
   Path := ChangeFileExt(Application.ExeName, '.ini');
   if not FileExists(Path) then
@@ -847,6 +1105,8 @@ begin
     FWsPort    := Ini.ReadString ('Settings', 'WsPort',          '8765');
     FWsToken   := Ini.ReadString ('Settings', 'WsToken',          '');
     FHdsPort   := Ini.ReadString ('Settings', 'HdsPort',         '3476');
+    FLastComPort := Ini.ReadString('Settings', 'LastComPort',     '');
+    FAutoConnectLast := Ini.ReadBool('Settings', 'AutoConnectLastCom', True);
     FHotkeyVal := TShortCut(Ini.ReadInteger('Settings', 'EmergencyHotKey', 0));
 
     // Sprache laden
@@ -867,6 +1127,11 @@ begin
         M.ShockerIndex  := Ini.ReadInteger('Mapping' + IntToStr(I), 'ShockerIndex', 0);
         M.Intensity     := Ini.ReadInteger('Mapping' + IntToStr(I), 'Intensity',    50);
         M.Duration      := Ini.ReadInteger('Mapping' + IntToStr(I), 'Duration',     1000);
+        M.HdsRequired   := Ini.ReadBool   ('Mapping' + IntToStr(I), 'HdsRequired',  False);
+        M.HdsDataTypeKey:= Ini.ReadString ('Mapping' + IntToStr(I), 'HdsDataType',   'heartRate');
+        M.HdsCondition  := THdsGateCondition(
+          Ini.ReadInteger('Mapping' + IntToStr(I), 'HdsCondition', 0));
+        M.HdsThreshold  := Ini.ReadFloat  ('Mapping' + IntToStr(I), 'HdsThreshold', 120.0);
         FMappings.Add(M);
       end;
     end;
@@ -891,6 +1156,20 @@ begin
         FHdsTriggers.Add(T);
       end;
     end;
+
+    // Modulnamen laden
+    FModuleNames.Clear;
+    Count := Ini.ReadInteger('ModuleNames', 'Count', 0);
+    for I := 0 to Count - 1 do
+    begin
+      ModId := Ini.ReadInteger('ModuleNames', 'Id' + IntToStr(I), 0);
+      ModName := Trim(Ini.ReadString('ModuleNames', 'Name' + IntToStr(I), ''));
+      if (ModId > 0) and (ModName <> '') then
+        if not FModuleNames.ContainsKey(ModId) then
+          FModuleNames.Add(ModId, ModName)
+        else
+          FModuleNames[ModId] := ModName;
+    end;
   finally
     Ini.Free;
   end;
@@ -902,6 +1181,7 @@ var
   Path : string;
   I    : Integer;
   M    : TCommandMapping;
+  Pair : TPair<Integer, string>;
 begin
   Path := ChangeFileExt(Application.ExeName, '.ini');
   Ini  := TIniFile.Create(Path);
@@ -909,6 +1189,8 @@ begin
     Ini.WriteString ('Settings', 'WsPort',          FWsPort);
     Ini.WriteString ('Settings', 'WsToken',          FWsToken);
     Ini.WriteString ('Settings', 'HdsPort',          FHdsPort);
+    Ini.WriteString ('Settings', 'LastComPort',      FLastComPort);
+    Ini.WriteBool   ('Settings', 'AutoConnectLastCom', FAutoConnectLast);
     Ini.WriteInteger('Settings', 'EmergencyHotKey',  FHotkeyVal);
 
     // Sprache speichern
@@ -926,6 +1208,10 @@ begin
       Ini.WriteInteger('Mapping' + IntToStr(I), 'ShockerIndex', M.ShockerIndex);
       Ini.WriteInteger('Mapping' + IntToStr(I), 'Intensity',    M.Intensity);
       Ini.WriteInteger('Mapping' + IntToStr(I), 'Duration',     M.Duration);
+      Ini.WriteBool   ('Mapping' + IntToStr(I), 'HdsRequired',  M.HdsRequired);
+      Ini.WriteString ('Mapping' + IntToStr(I), 'HdsDataType',  M.HdsDataTypeKey);
+      Ini.WriteInteger('Mapping' + IntToStr(I), 'HdsCondition', Ord(M.HdsCondition));
+      Ini.WriteFloat  ('Mapping' + IntToStr(I), 'HdsThreshold', M.HdsThreshold);
     end;
 
     // HDS-Trigger speichern
@@ -942,6 +1228,16 @@ begin
       Ini.WriteInteger('HdsTrigger' + IntToStr(I), 'ShockerIndex',T.ShockerIndex);
       Ini.WriteInteger('HdsTrigger' + IntToStr(I), 'Intensity',   T.Intensity);
       Ini.WriteInteger('HdsTrigger' + IntToStr(I), 'Duration',    T.Duration);
+    end;
+
+    // Modulnamen speichern
+    Ini.WriteInteger('ModuleNames', 'Count', FModuleNames.Count);
+    I := 0;
+    for Pair in FModuleNames do
+    begin
+      Ini.WriteInteger('ModuleNames', 'Id' + IntToStr(I), Pair.Key);
+      Ini.WriteString ('ModuleNames', 'Name' + IntToStr(I), Pair.Value);
+      Inc(I);
     end;
   finally
     Ini.Free;

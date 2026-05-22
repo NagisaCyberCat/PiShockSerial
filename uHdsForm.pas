@@ -39,11 +39,14 @@ type
     FTriggerList     : THdsTriggerList;
     FOnSave          : THdsSaveProc;
     FMaxShockerIndex : Integer;
+    FModuleChoices   : TStringList;
 
     procedure UpdateButtons;
     function  SelectedTrigger: THdsTrigger;
 
   public
+    destructor Destroy; override;
+
     /// <summary>
     ///   Trigger-Liste und Save-Callback setzen (wird von Hauptformular aufgerufen).
     ///   TriggerList: gemeinsame Liste, Eigentuemer bleibt das Hauptformular.
@@ -59,6 +62,9 @@ type
     /// <summary>Anzahl bekannter Module aktualisieren (fuer Dialog-Spinner)</summary>
     procedure UpdateMaxShockerIndex(AMax: Integer);
 
+    /// <summary>Optionale Modulnamen fuer Trigger-Dialoge setzen</summary>
+    procedure SetModuleChoices(Choices: TStrings);
+
     /// <summary>Alle Beschriftungen auf aktuelle Sprache umstellen</summary>
     procedure ApplyLanguage;
   end;
@@ -72,6 +78,8 @@ implementation
 
 procedure THdsForm.FormCreate(Sender: TObject);
 begin
+  FModuleChoices := TStringList.Create;
+
   // ListView-Spalten anlegen
   with lvTriggers.Columns.Add do begin Caption := 'Data type';  Width := 115; end;
   with lvTriggers.Columns.Add do begin Caption := 'Condition';  Width := 90;  end;
@@ -80,6 +88,12 @@ begin
 
   ApplyLanguage;
   UpdateButtons;
+end;
+
+destructor THdsForm.Destroy;
+begin
+  FModuleChoices.Free;
+  inherited;
 end;
 
 procedure THdsForm.ApplyLanguage;
@@ -111,6 +125,13 @@ end;
 procedure THdsForm.UpdateMaxShockerIndex(AMax: Integer);
 begin
   FMaxShockerIndex := AMax;
+end;
+
+procedure THdsForm.SetModuleChoices(Choices: TStrings);
+begin
+  FModuleChoices.Clear;
+  if Assigned(Choices) then
+    FModuleChoices.AddStrings(Choices);
 end;
 
 procedure THdsForm.RefreshList;
@@ -193,6 +214,7 @@ begin
   Dlg := TAddHdsTriggerForm.Create(Self);
   try
     Dlg.MaxShockerIndex := FMaxShockerIndex;
+    Dlg.SetModuleChoices(FModuleChoices);
     if Dlg.ShowModal = mrOk then
     begin
       T := Dlg.GetTrigger;
@@ -221,6 +243,7 @@ begin
   Dlg := TAddHdsTriggerForm.Create(Self);
   try
     Dlg.MaxShockerIndex := FMaxShockerIndex;
+    Dlg.SetModuleChoices(FModuleChoices);
     Dlg.LoadFromTrigger(Existing);
     if Dlg.ShowModal = mrOk then
     begin
