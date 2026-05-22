@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Delphi / RAD Studio GitIgnore
+# ---------------------------------------------------------------------------
+
+# Compiler-Artefakte und Binärdateien
+*.dcu
+*.bpl
+*.dcp
+*.dres
+*.rsm
+*.map
+*.pif
+*.vlb
+*.stat
+
+# Ausführbare Dateien (Falls du deine Releases woanders verwalten willst)
+# Hinweis: Wenn du Test- oder Beispiel-Exes im Repo brauchst, diese Zeilen auskommentieren
+*.exe
+*.dll
+
+# Build-Konfigurationen und Plattform-Ausgabeordner
+# Ignoriert die automatischen Debug/Release-Ordner (Win32/Win64 etc.)
+Win32/
+Win64/
+OSX32/
+OSX64/
+OSXDarwin64/
+iOS32/
+iOS64/
+iOSDevice32/
+iOSDevice64/
+iOSSimulator/
+Android/
+Android64/
+
+# Lokale Benutzereinstellungen und IDE-Caches
+*.dsk
+*.identcache
+*.local
+*.projdata
+*.tvsconfig
+*.stat
+
+# Delphi-Verlauf und automatische Wiederherstellung (Sehr wichtig!)
+__history/
+__recovery/
+
+# Temporäre Dateien und Editor-Backups
+*.~*
+*.tmp
