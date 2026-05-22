@@ -1,6 +1,6 @@
 # GPLv3 Licensing Setup Guide
 
-This guide outlines the step-by-step process to officially license the **PiShock Serial Controller** project under the **GNU General Public License v3.0 (GPLv3)**. Applying this license ensures the codebase remains open-source, guarantees attribution to you (**Nagisa**), and protects it from being integrated into proprietary, closed-source software.
+This guide outlines the step-by-step process to officially license the **PiShock Serial Controller** project under the **GNU General Public License v3.0 (GPLv3)**. Applying this license ensures the codebase remains open-source, guarantees attribution to you (**NagisaCyberCat**), and protects it from being integrated into proprietary, closed-source software.
 
 ---
 
@@ -19,7 +19,7 @@ Every source file should contain a brief copyright notice and a pointer to the f
 ```pascal
 {
   PiShock Serial Controller
-  Copyright (C) 2026 NagisaCybercat
+  Copyright (C) 2026 NagisaCyberCat
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -72,9 +72,9 @@ Copyright (C) 2026 NagisaCybercat
 
 By using the GPLv3, you establish the following legal boundaries:
 
-1. **Attribution:** Anyone modifying or redistributing this code *must* retain your copyright notice (`Copyright (C) 2026 Nagisa`). They cannot claim authorship of the core application.
+1. **Attribution:** Anyone modifying or redistributing this code *must* retain your copyright notice (`Copyright (C) 2026 NagisaCyberCat`). They cannot claim authorship of the core application.
 2. **Copyleft Protection:** If a developer forks your repository or utilizes your Delphi units to create a new program, and they decide to distribute that program, **they are legally required to make their entire source code public under the same GPLv3 license**.
 3. **No Closed-Source Commercialization:** Nobody can grab your hardware communications stack, lock it behind a paywall, hide the source code, and sell it as proprietary software.
 
 ---
-*Guide generated for Nagisa — May 2026*
+*Guide generated for NagisaCyberCat — May 2026*
