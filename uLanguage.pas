@@ -75,6 +75,7 @@ type
     LogExecutingFmt        : string;   // 'Executing: [%s] %s'
     LogWsCmdReceivedFmt    : string;   // '[WS] Command received: "%s"'
     LogWsNoMappingFmt      : string;   // '[WS] No mapping for: "%s"'
+    LogWsAckSentFmt        : string;   // '[WS] Ack sent: "%s"'
     LogWsHdsBlockedFmt     : string;
     LogWsHdsNotMetFmt      : string;
     LogDevNotConnHds       : string;
@@ -225,6 +226,7 @@ begin
       LS.LogExecutingFmt        := 'Executing: [%s] %s';
       LS.LogWsCmdReceivedFmt    := '[WS] Command received: "%s"';
       LS.LogWsNoMappingFmt      := '[WS] No mapping for: "%s"';
+      LS.LogWsAckSentFmt        := '[WS] Ack sent: "%s"';
       LS.LogWsHdsBlockedFmt     := '[WS] HDS check blocked for "%s": no value for %s';
       LS.LogWsHdsNotMetFmt      := '[WS] HDS condition not met for "%s": %s %s %.6g (current %.6g)';
       LS.LogDevNotConnHds       := 'Device not connected - HDS trigger ignored';
@@ -357,6 +359,7 @@ begin
       LS.LogExecutingFmt        := 'Ausf'#252'hre: [%s] %s';
       LS.LogWsCmdReceivedFmt    := '[WS] Befehl empfangen: "%s"';
       LS.LogWsNoMappingFmt      := '[WS] Kein Mapping f'#252'r: "%s"';
+      LS.LogWsAckSentFmt        := '[WS] Best'#228'tigung gesendet: "%s"';
       LS.LogWsHdsBlockedFmt     := '[WS] HDS-Pr'#252'fung blockiert f'#252'r "%s": kein Wert f'#252'r %s';
       LS.LogWsHdsNotMetFmt      := '[WS] HDS-Bedingung nicht erf'#252'llt f'#252'r "%s": %s %s %.6g (aktuell %.6g)';
       LS.LogDevNotConnHds       := 'Ger'#228't nicht verbunden - HDS-Trigger ignoriert';

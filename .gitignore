@@ -48,3 +48,4 @@ __recovery/
 # Temporäre Dateien und Editor-Backups
 *.~*
 *.tmp
+*.dproj

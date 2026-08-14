@@ -555,9 +555,29 @@ end;
 
 procedure TForm1.OnHdsData(const DataType: string; Value: Double);
 var
-  T : THdsTrigger;
+  T      : THdsTrigger;
+  FS     : TFormatSettings;
+  ValStr : string;
 begin
   FLatestHdsValues.AddOrSetValue(LowerCase(DataType), Value);
+
+  FS     := TFormatSettings.Create('en-US');
+  ValStr := FloatToStr(Value, FS);   // immer Punkt-Dezimal
+
+  // Live-Wert ans Overlay weiterreichen, sobald eine Bridge verbunden ist (Client
+  // am WS-Server). Format "hds:<typ>:<wert>"; die Bridge erkennt das Praefix und
+  // leitet es als Datenstrom (nicht als Signal) an den Blog weiter.
+  //
+  // DEBUG: jeder empfangene Wert wird protokolliert. Damit sieht man auf einen
+  // Blick, ob die Watch ueberhaupt ankommt UND ob der Wert weitergereicht wird
+  // (oder ob keine Bridge verbunden ist -> dann fehlt er im Overlay).
+  if FWsServer.Active and (FWsServer.ClientCount > 0) then
+  begin
+    FWsServer.BroadcastText(Format('hds:%s:%s', [DataType, ValStr]));
+    AddLog(Format('[HDS] %s = %s  -> Bridge (%d Client)', [DataType, ValStr, FWsServer.ClientCount]));
+  end
+  else
+    AddLog(Format('[HDS] %s = %s  (keine Bridge verbunden)', [DataType, ValStr]));
 
   for T in FHdsTriggers do
     if T.ShouldFire(DataType, Value) then
@@ -705,6 +725,8 @@ procedure TForm1.ExecuteMapping(M: TCommandMapping);
 var
   Shockers : TArray<TShockerInfo>;
   I        : Integer;
+  Fired    : Boolean;
+  Ack      : string;
 begin
   if not FDevice.IsConnected then
   begin
@@ -719,17 +741,24 @@ begin
     Exit;
   end;
 
+  Fired := False;
   case M.TargetType of
     ttAll:
       for I := 0 to High(Shockers) do
+      begin
         FDevice.Operate(Shockers[I].ID, OpApiStr[M.OpType],
           M.Duration, M.Intensity);
+        Fired := True;
+      end;
 
     ttSpecific:
     begin
       if (M.ShockerIndex >= 0) and (M.ShockerIndex < Length(Shockers)) then
+      begin
         FDevice.Operate(Shockers[M.ShockerIndex].ID, OpApiStr[M.OpType],
-          M.Duration, M.Intensity)
+          M.Duration, M.Intensity);
+        Fired := True;
+      end
       else
         AddLog(Format(LS.LogModIdxFmt,
           [M.ShockerIndex + 1, Length(Shockers)]));
@@ -740,10 +769,23 @@ begin
       I := Random(Length(Shockers));
       FDevice.Operate(Shockers[I].ID, OpApiStr[M.OpType],
         M.Duration, M.Intensity);
+      Fired := True;
     end;
   end;
 
+  // Nur wenn wirklich ausgeloest wurde (nicht bei ungueltigem Modul-Index):
+  // sonst wuerde das wartende Item im Blog faelschlich bestaetigt.
+  if not Fired then
+    Exit;
+
   AddLog(Format(LS.LogExecutingFmt, [M.TriggerString, M.Describe]));
+
+  // Empfangsbestaetigung an den verbundenen Client (Bridge) zuruecksenden: der
+  // Ausloesestring mit angehaengtem "_ok". Erst dadurch wird das Item eingeloest.
+  // Geht ueber DIESELBE Verbindung zurueck, die die Bridge geoeffnet hat.
+  Ack := M.TriggerString + '_ok';
+  FWsServer.BroadcastText(Ack);
+  AddLog(Format(LS.LogWsAckSentFmt, [Ack]));
 end;
 
 function TForm1.SelectedMapping: TCommandMapping;
